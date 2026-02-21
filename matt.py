@@ -372,6 +372,136 @@ def _next_roast() -> str:
         random.shuffle(_roast_pool)
     return _roast_pool.pop()
 
+
+MATT_VOICE_ROASTS = [
+    "matt your aura is in the negatives and the graph is still dropping.",
+    "matt you are built like a bad update with no patch notes.",
+    "matt your takes are so cooked even air fryers are judging you.",
+    "matt is the CEO of talking first and thinking never.",
+    "matt you are all confidence and zero receipts.",
+    "matt is giving premium delusion with budget execution.",
+    "matt your vibe is off brand and out of stock.",
+    "matt you are chronically loud and historically wrong.",
+    "matt got that unskippable ad personality.",
+    "matt you are not the main character, you are the buffering icon.",
+    "matt your decisions look AI generated in a bad way.",
+    "matt you have the reaction speed of internet explorer on hotel wifi.",
+    "matt you are a walking L with subtitles.",
+    "matt your whole strategy is vibes and avoidable errors.",
+    "matt is the human version of a typo in a tattoo.",
+    "matt your confidence writes checks your talent keeps bouncing.",
+    "matt got that no thoughts, just volume build.",
+    "matt your logic is fan fiction with plot holes.",
+    "matt you are one more bad take away from a fraud documentary.",
+    "matt your brain is on airplane mode during conversations.",
+    "matt you move like an NPC that lost its quest marker.",
+    "matt your clapbacks come in 240p.",
+    "matt you got ratioed by your own common sense.",
+    "matt your aura took a personal day and never came back.",
+    "matt talks like he is him and performs like he is a maybe.",
+    "matt your plans are basically trust me bro in powerpoint form.",
+    "matt your last three takes were all jump scares.",
+    "matt is all gas, no steering wheel.",
+    "matt your social battery is full and your judgment is dead.",
+    "matt you are proof that volume is not intelligence.",
+    "matt your comebacks have loading screens.",
+    "matt got that final boss ego and tutorial level skill tree.",
+    "matt your entire personality is a push notification nobody opened.",
+    "matt you are what happens when confidence outruns competence.",
+    "matt your ideas arrive half baked and still overcooked.",
+    "matt is yapping in 4k and thinking in 144p.",
+    "matt your vibe check failed with critical damage.",
+    "matt you are all cap with extra cap on the side.",
+    "matt your emotional intelligence is in power saving mode.",
+    "matt you are peak cornball behavior with deluxe packaging.",
+    "matt your attention span loses fistfights with doorbells.",
+    "matt you got that fake deep podcast energy.",
+    "matt your takes are so mid they are underground.",
+    "matt your confidence is loud because your results are quiet.",
+    "matt is somehow both extra and underwhelming at once.",
+    "matt your thought process has pop up ads.",
+    "matt you are giving group project ghoster energy.",
+    "matt your humility got evicted years ago.",
+    "matt is built like a red flag starter pack.",
+    "matt your aura score is a decimal.",
+    "matt your brain keeps buffering at the important parts.",
+    "matt you are one podcast mic away from full delulu.",
+    "matt your opinions are loud, wrong, and weirdly rehearsed.",
+    "matt got that motivational speaker voice with cautionary tale outcomes.",
+    "matt your confidence is sponsored by denial.",
+    "matt is a professional at missing the point with passion.",
+    "matt your decisions need adult supervision.",
+    "matt you are a beta test nobody signed up for.",
+    "matt your self awareness logged out.",
+    "matt your best argument is just repeating yourself louder.",
+    "matt you talk like a threat and execute like a warning label.",
+    "matt your brain is basically running background apps only.",
+    "matt got that off brand sigma energy from temu.",
+    "matt you are the reason instructions say read carefully.",
+    "matt your comeback game is weak and delayed.",
+    "matt your aura is in airplane mode and still causing turbulence.",
+    "matt is all plot armor and no skill points.",
+    "matt your confidence is a straight up clerical error.",
+    "matt your takes sound like they were approved by no one.",
+    "matt you are permanently one step behind and two steps louder.",
+    "matt your personality is a chain email from 2009.",
+    "matt you are yappuccino supreme with no substance foam.",
+    "matt got that try hard menace energy with beginner outcomes.",
+    "matt you speak fluent nonsense with a fake accent of authority.",
+    "matt your vibe is walmart villain arc.",
+    "matt your thought process is a maze with no cheese.",
+    "matt you are aggressively average with elite self marketing.",
+    "matt your aura expired and nobody renewed it.",
+    "matt is speedrunning bad impressions.",
+    "matt your entire brand is confidence without quality control.",
+    "matt got dragged by reality and still asked for round two.",
+    "matt your common sense is in witness protection.",
+    "matt you are the definition of loud wrong.",
+    "matt your takes are so stale they crunch.",
+    "matt got that villain monologue with side character impact.",
+    "matt your patience is low and your ego is overclocked.",
+    "matt your brain has too many tabs and none are useful.",
+    "matt is a certified yapper with counterfeit wisdom.",
+    "matt your aura has unpaid parking tickets.",
+    "matt your logic is duct tape and vibes.",
+    "matt you are a walking red flag with bluetooth speakers.",
+    "matt your timing is elite if the goal is maximum cringe.",
+    "matt you are emotionally sponsored by bad decisions.",
+    "matt your ideas look confident until anyone asks why.",
+    "matt got that no filter, no framework combo.",
+    "matt your whole thing is giving rejected reality show finalist.",
+    "matt your strategy is panic with branding.",
+    "matt your communication style is volume based warfare.",
+    "matt you are a cautionary tale with good hair.",
+    "matt your aura score just got ratioed by silence.",
+    "matt got no chill and negative shame.",
+    "matt your ego is writing fan mail to itself.",
+    "matt you are one terrible take away from a jump scare compilation.",
+    "matt your self confidence should come with a legal disclaimer.",
+    "matt your plot is thick but your character development is thin.",
+    "matt you are confidently incorrect as a full time profession.",
+    "matt your opinions age like milk in a hot car.",
+    "matt got that walmart philosopher starter kit.",
+    "matt your flex is mostly noise pollution.",
+    "matt your brain is running on free trial mode.",
+    "matt you are allergic to nuance and obsessed with theatrics.",
+    "matt your argument style is copy, paste, and pray.",
+    "matt got that fake alpha subscription with ads.",
+    "matt your aura got repoed.",
+    "matt your confidence is all-terrain, your accuracy is not.",
+    "matt you are a glitch in the social feed.",
+]
+
+_voice_roast_pool: list[str] = []
+
+
+def _next_voice_roast() -> str:
+    global _voice_roast_pool
+    if not _voice_roast_pool:
+        _voice_roast_pool = MATT_VOICE_ROASTS[:]
+        random.shuffle(_voice_roast_pool)
+    return _voice_roast_pool.pop()
+
 load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
@@ -718,14 +848,15 @@ async def love_matt(ctx: commands.Context):
 @bot.command(name="hate_matt")
 async def hate_matt(ctx: commands.Context):
     """Send a playful roast for Matt."""
-    roast = _next_roast()
-    await ctx.send(roast)
-    log.info("Sent roast via !hate_matt: %s", roast)
+    text_roast = _next_roast()
+    await ctx.send(text_roast)
+    log.info("Sent roast via !hate_matt: %s", text_roast)
     if ctx.voice_client and ctx.voice_client.is_connected():
+        voice_roast = _next_voice_roast()
         await _speak_text(
             ctx.voice_client,
             ctx.guild.id,
-            roast,
+            voice_roast,
             rate=MATT_ROAST_TTS_RATE,
             pitch=MATT_ROAST_TTS_PITCH,
         )
@@ -737,7 +868,7 @@ async def hate_matt_voice(ctx: commands.Context):
     if not ctx.voice_client or not ctx.voice_client.is_connected():
         await ctx.send("I'm not in a voice channel.")
         return
-    roast = _next_roast()
+    roast = _next_voice_roast()
     started = await _speak_text(
         ctx.voice_client,
         ctx.guild.id,
