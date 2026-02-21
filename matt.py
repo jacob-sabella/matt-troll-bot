@@ -381,14 +381,26 @@ logging.basicConfig(
 logging.getLogger("discord.ext.voice_recv.gateway").setLevel(logging.WARNING)
 logging.getLogger("discord.ext.voice_recv.reader").setLevel(logging.WARNING)
 
-# The router thread raises OpusError("corrupted stream") when a user disconnects mid-packet.
-# Demote those to DEBUG so they don't clutter the output.
-class _SuppressOpusCorrupted(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        return "corrupted stream" not in (record.getMessage())
-
-logging.getLogger("discord.ext.voice_recv.router").addFilter(_SuppressOpusCorrupted())
 log = logging.getLogger(__name__)
+
+# The router thread raises OpusError("corrupted stream") on corrupted/dropped packets
+# (e.g. a user disconnecting mid-packet). Normally this kills the PacketRouter thread
+# and stops transcription permanently. Monkey-patch run() to catch OpusError and restart
+# _do_run() so the thread survives — effectively skipping the bad packet.
+import discord.ext.voice_recv.router as _vr_router
+from discord.opus import OpusError as _OpusError
+
+
+def _resilient_router_run(self) -> None:
+    while True:
+        try:
+            self._do_run()
+            return  # normal exit (voice client disconnected/stopped)
+        except _OpusError as e:
+            log.debug("PacketRouter: ignoring corrupted Opus packet, resuming: %s", e)
+
+
+_vr_router.PacketRouter.run = _resilient_router_run
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -403,6 +415,8 @@ transcriber_recovery_lock = asyncio.Lock()
 active_sinks: dict[int, TranscribingSink] = {}
 # guild_id → periodic greeter task
 active_periodic_tasks: dict[int, asyncio.Task] = {}
+# guild_id → lock that serializes TTS playback so requests queue up instead of dropping
+_tts_locks: dict[int, asyncio.Lock] = {}
 
 MATT_PERIODIC_INTERVAL = 600  # seconds between periodic greetings (10 minutes)
 
@@ -540,31 +554,48 @@ async def _speak_text(
     pitch: str,
     voice: str | None = None,
 ) -> bool:
-    """Wait for silence and play generated TTS text. Returns True if playback started."""
+    """Wait for channel silence, queue behind any current playback, then play TTS.
+    Returns True after playback completes, False if the voice client is not connected."""
     await _wait_for_silence(guild_id)
 
     if not vc.is_connected():
         return False
-    if vc.is_playing():
-        log.debug("Skipping TTS playback because voice client is already playing audio.")
-        return False
 
-    chosen_voice = voice or _next_voice()
-    audio_path = await _generate_tts(text, chosen_voice, rate, pitch)
+    lock = _tts_locks.setdefault(guild_id, asyncio.Lock())
+    async with lock:
+        if not vc.is_connected():
+            return False
 
-    def _cleanup(err):
+        # Wait for any in-progress playback (greeting, prior roast, etc.) to finish.
+        while vc.is_playing():
+            await asyncio.sleep(0.1)
+
+        if not vc.is_connected():
+            return False
+
+        chosen_voice = voice or _next_voice()
+        audio_path = await _generate_tts(text, chosen_voice, rate, pitch)
+
+        loop = asyncio.get_running_loop()
+        done = asyncio.Event()
+
+        def _cleanup(err):
+            try:
+                os.unlink(audio_path)
+            except OSError:
+                pass
+            if err:
+                log.error("Error playing TTS audio: %s", err)
+            loop.call_soon_threadsafe(done.set)
+
         try:
-            os.unlink(audio_path)
-        except OSError:
-            pass
-        if err:
-            log.error("Error playing TTS audio: %s", err)
+            vc.play(discord.FFmpegPCMAudio(audio_path), after=_cleanup)
+        except discord.ClientException:
+            _cleanup(None)
+            return False
 
-    try:
-        vc.play(discord.FFmpegPCMAudio(audio_path), after=_cleanup)
-    except discord.ClientException:
-        _cleanup(None)
-        return False
+        await done.wait()
+
     return True
 
 
@@ -670,6 +701,7 @@ async def leave(ctx: commands.Context):
     task = active_periodic_tasks.pop(ctx.guild.id, None)
     if task:
         task.cancel()
+    _tts_locks.pop(ctx.guild.id, None)
     await ctx.send(f"Left **{channel_name}**.")
     log.info("Left voice channel: %s", channel_name)
 
@@ -714,7 +746,7 @@ async def hate_matt_voice(ctx: commands.Context):
         pitch=MATT_ROAST_TTS_PITCH,
     )
     if not started:
-        await ctx.send("Couldn't play voice roast right now (already playing or disconnected).")
+        await ctx.send("Couldn't play voice roast (not connected to a voice channel).")
         return
     log.info("Played voice-only roast via !hate_matt_voice: %s", roast)
 
