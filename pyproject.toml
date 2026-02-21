@@ -1,0 +1,13 @@
+[project]
+name = "matt-troll-bot"
+version = "0.1.0"
+description = "Discord bot that transcribes voice channel audio to text"
+requires-python = ">=3.10"
+dependencies = [
+    "discord.py[voice]>=2.3.0",
+    "discord-ext-voice-recv>=0.5.0",
+    "faster-whisper>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "numpy>=1.26.0",
+    "edge-tts>=6.1.0",
+]
