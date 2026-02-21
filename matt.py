@@ -5,6 +5,7 @@ Commands:
   !join [channel]   Join a voice channel (defaults to the author's current channel)
   !leave            Leave the current voice channel
   !hate_matt        Send a playful roast aimed at Matt
+  !hate_matt_voice  Play a playful roast in voice chat only
   !status           Show whether the bot is listening and in which channel
 """
 
@@ -396,6 +397,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 transcriber: Transcriber | None = None
+transcriber_recovery_lock = asyncio.Lock()
 
 # guild_id → TranscribingSink, so the voice-state event can reach the active sink
 active_sinks: dict[int, TranscribingSink] = {}
@@ -409,11 +411,42 @@ MATT_PERIODIC_INTERVAL = 600  # seconds between periodic greetings (10 minutes)
 # Events
 # ---------------------------------------------------------------------------
 
+async def _build_transcriber() -> Transcriber | None:
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, Transcriber)
+    except Exception:
+        log.exception("Failed to initialize transcriber.")
+        return None
+
+
+async def _recover_transcriber(failed: Transcriber | None = None) -> bool:
+    """Rebuild the transcriber after an error; serialize rebuilds across tasks."""
+    global transcriber
+    async with transcriber_recovery_lock:
+        # If another task already healed it, avoid rebuilding again.
+        if failed is not None and transcriber is not None and transcriber is not failed:
+            return True
+
+        log.warning("Transcriber error detected; attempting self-heal.")
+        rebuilt = await _build_transcriber()
+        if rebuilt is None:
+            transcriber = None
+            log.error("Transcriber self-heal failed; transcription temporarily unavailable.")
+            return False
+        transcriber = rebuilt
+        log.info("Transcriber self-heal succeeded.")
+        return True
+
+
 @bot.event
 async def on_ready():
     global transcriber
     log.info("Logged in as %s (id=%s)", bot.user, bot.user.id)
-    transcriber = Transcriber()
+    if transcriber is None:
+        transcriber = await _build_transcriber()
+        if transcriber is None:
+            log.error("Bot is online, but transcriber failed to initialize.")
 
 
 # ---------------------------------------------------------------------------
@@ -424,11 +457,26 @@ async def handle_utterance(user, pcm_bytes: bytes) -> None:
     name = getattr(user, "display_name", str(getattr(user, "id", "unknown")))
     log.info("Transcribing utterance from %s (%d bytes)...", name, len(pcm_bytes))
 
-    if transcriber is None:
+    if transcriber is None and not await _recover_transcriber():
         return
 
+    text: str | None = None
     loop = asyncio.get_running_loop()
-    text = await loop.run_in_executor(None, transcriber.transcribe, pcm_bytes)
+    for attempt in range(2):
+        current = transcriber
+        if current is None:
+            return
+        try:
+            text = await loop.run_in_executor(None, current.transcribe, pcm_bytes)
+            break
+        except Exception:
+            if attempt == 0:
+                log.exception("Transcription failed for %s; attempting self-heal and retry.", name)
+                if not await _recover_transcriber(current):
+                    return
+                continue
+            log.exception("Transcription retry failed for %s; skipping utterance.", name)
+            return
 
     if not text:
         log.debug("No speech detected in utterance from %s.", name)
@@ -649,6 +697,26 @@ async def hate_matt(ctx: commands.Context):
             rate=MATT_ROAST_TTS_RATE,
             pitch=MATT_ROAST_TTS_PITCH,
         )
+
+
+@bot.command(name="hate_matt_voice")
+async def hate_matt_voice(ctx: commands.Context):
+    """Play a playful roast in voice chat without posting the roast text."""
+    if not ctx.voice_client or not ctx.voice_client.is_connected():
+        await ctx.send("I'm not in a voice channel.")
+        return
+    roast = _next_roast()
+    started = await _speak_text(
+        ctx.voice_client,
+        ctx.guild.id,
+        roast,
+        rate=MATT_ROAST_TTS_RATE,
+        pitch=MATT_ROAST_TTS_PITCH,
+    )
+    if not started:
+        await ctx.send("Couldn't play voice roast right now (already playing or disconnected).")
+        return
+    log.info("Played voice-only roast via !hate_matt_voice: %s", roast)
 
 
 @bot.command(name="status")

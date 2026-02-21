@@ -72,9 +72,12 @@ class TranscribingSink(AudioSink):
         return False  # Ask discord-ext-voice-recv to decode Opus → PCM for us
 
     def write(self, user: discord.User | discord.Member, data: VoiceData) -> None:
-        if user is None or user.bot:
+        if user is None or getattr(user, "bot", False):
             return
-        self._buffers[user.id].append(data.pcm)
+        pcm = getattr(data, "pcm", None)
+        if not pcm:
+            return
+        self._buffers[user.id].append(pcm)
 
     def cleanup(self) -> None:
         if self._flush_task and not self._flush_task.done():
@@ -90,21 +93,36 @@ class TranscribingSink(AudioSink):
     async def _flush_loop(self) -> None:
         """Periodically check each user buffer and flush after silence."""
         while True:
-            await asyncio.sleep(0.05)
-            for user_id, buf in list(self._buffers.items()):
-                if not buf.chunks:
-                    continue
-                silent_for = buf.silence_duration()
-                if silent_for >= self._silence_threshold:
-                    duration = buf.duration()
-                    pcm = buf.flush()
-                    if duration < self._min_duration:
-                        log.debug("Skipping short audio (%.2fs) from user %s", duration, user_id)
+            try:
+                await asyncio.sleep(0.05)
+                for user_id, buf in list(self._buffers.items()):
+                    if not buf.chunks:
                         continue
-                    # Resolve user object from the voice client's channel members
-                    user = self._resolve_user(user_id)
-                    log.debug("Flushing %.2fs of audio from %s", duration, user_id)
-                    asyncio.ensure_future(self._on_utterance(user, pcm), loop=self._loop)
+                    silent_for = buf.silence_duration()
+                    if silent_for >= self._silence_threshold:
+                        duration = buf.duration()
+                        pcm = buf.flush()
+                        if duration < self._min_duration:
+                            log.debug("Skipping short audio (%.2fs) from user %s", duration, user_id)
+                            continue
+                        # Resolve user object from the voice client's channel members
+                        user = self._resolve_user(user_id)
+                        log.debug("Flushing %.2fs of audio from %s", duration, user_id)
+                        task = self._loop.create_task(self._on_utterance(user, pcm))
+                        task.add_done_callback(self._log_utterance_task_failure)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Transcribing sink flush loop hit an error; continuing.")
+
+    @staticmethod
+    def _log_utterance_task_failure(task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            log.exception("Utterance callback failed; continuing.")
 
     @property
     def last_audio_at(self) -> float:
