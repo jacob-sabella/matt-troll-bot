@@ -4,6 +4,7 @@ matt-troll-bot — Discord voice channel transcription bot.
 Commands:
   !join [channel]   Join a voice channel (defaults to the author's current channel)
   !leave            Leave the current voice channel
+  !hate_matt        Send a playful roast aimed at Matt
   !status           Show whether the bot is listening and in which channel
 """
 
@@ -29,6 +30,8 @@ from transcriber import Transcriber
 MATT_USER_ID = 137584893906386944
 MATT_TTS_RATE = "-20%"
 MATT_TTS_PITCH = "-8Hz"
+MATT_ROAST_TTS_RATE = "-5%"
+MATT_ROAST_TTS_PITCH = "-4Hz"
 
 # Curated pool of voices that sound good with the sultry rate/pitch settings
 MATT_VOICES = [
@@ -329,6 +332,45 @@ def _next_greeting() -> str:
         random.shuffle(_greeting_pool)
     return _greeting_pool.pop()
 
+
+MATT_ROASTS = [
+    "matt has the confidence of a man who has never read his own typo-ridden texts.",
+    "matt's strongest skill is turning a good plan into a group project.",
+    "matt brings big main-character energy and side-quest execution.",
+    "matt argues with autocorrect and still loses.",
+    "matt is proof that charisma can exist without attention to detail.",
+    "matt talks in bullet points and somehow still forgets the point.",
+    "matt has premium taste and free-trial follow-through.",
+    "matt enters a room like a keynote speaker and leaves like a software update.",
+    "matt can make any topic about himself in under two business minutes.",
+    "matt has a PhD in confidence and a minor in avoidable mistakes.",
+    "matt gives strong final-boss dialogue with tutorial-level decisions.",
+    "matt thinks out loud and calls it a strategy meeting.",
+    "matt is the kind of person who says no offense right before proving otherwise.",
+    "matt could get lost in a one-way hallway and still blame the architect.",
+    "matt is wildly consistent at being almost right.",
+    "matt has the aura of a genius and the browser history of a confused intern.",
+    "matt's plans come with excellent branding and optional realism.",
+    "matt has perfect timing for all the wrong moments.",
+    "matt can turn constructive feedback into a dramatic monologue.",
+    "matt is like a plot twist nobody asked for but everyone now has to process.",
+    "matt has elite confidence and public beta judgment.",
+    "matt treats common sense like an optional plugin.",
+    "matt is what happens when momentum outruns quality control.",
+    "matt could overcomplicate a sandwich order and call it optimization.",
+    "matt always brings ideas, just not always the finished version.",
+]
+
+_roast_pool: list[str] = []
+
+
+def _next_roast() -> str:
+    global _roast_pool
+    if not _roast_pool:
+        _roast_pool = MATT_ROASTS[:]
+        random.shuffle(_roast_pool)
+    return _roast_pool.pop()
+
 load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
@@ -441,17 +483,26 @@ async def _wait_for_silence(guild_id: int) -> None:
         await asyncio.sleep(0.1)
 
 
-async def _play_greeting(vc: VoiceRecvClient, guild_id: int) -> None:
-    """Wait for silence, then generate and play the next greeting from the pool."""
+async def _speak_text(
+    vc: VoiceRecvClient,
+    guild_id: int,
+    text: str,
+    *,
+    rate: str,
+    pitch: str,
+    voice: str | None = None,
+) -> bool:
+    """Wait for silence and play generated TTS text. Returns True if playback started."""
     await _wait_for_silence(guild_id)
 
     if not vc.is_connected():
-        return
+        return False
+    if vc.is_playing():
+        log.debug("Skipping TTS playback because voice client is already playing audio.")
+        return False
 
-    greeting = _next_greeting()
-    voice = _next_voice()
-    log.info("Playing greeting [%s]: %s", voice, greeting)
-    audio_path = await _generate_tts(greeting, voice, MATT_TTS_RATE, MATT_TTS_PITCH)
+    chosen_voice = voice or _next_voice()
+    audio_path = await _generate_tts(text, chosen_voice, rate, pitch)
 
     def _cleanup(err):
         try:
@@ -459,10 +510,29 @@ async def _play_greeting(vc: VoiceRecvClient, guild_id: int) -> None:
         except OSError:
             pass
         if err:
-            log.error("Error playing greeting: %s", err)
+            log.error("Error playing TTS audio: %s", err)
 
-    if not vc.is_playing():
+    try:
         vc.play(discord.FFmpegPCMAudio(audio_path), after=_cleanup)
+    except discord.ClientException:
+        _cleanup(None)
+        return False
+    return True
+
+
+async def _play_greeting(vc: VoiceRecvClient, guild_id: int) -> None:
+    """Wait for silence, then generate and play the next greeting from the pool."""
+    greeting = _next_greeting()
+    voice = _next_voice()
+    log.info("Playing greeting [%s]: %s", voice, greeting)
+    await _speak_text(
+        vc,
+        guild_id,
+        greeting,
+        rate=MATT_TTS_RATE,
+        pitch=MATT_TTS_PITCH,
+        voice=voice,
+    )
 
 
 async def _greet_matt_on_join(vc: VoiceRecvClient, guild_id: int) -> None:
@@ -563,6 +633,22 @@ async def love_matt(ctx: commands.Context):
         await ctx.send("I'm not in a voice channel.")
         return
     asyncio.create_task(_play_greeting(ctx.voice_client, ctx.guild.id))
+
+
+@bot.command(name="hate_matt")
+async def hate_matt(ctx: commands.Context):
+    """Send a playful roast for Matt."""
+    roast = _next_roast()
+    await ctx.send(roast)
+    log.info("Sent roast via !hate_matt: %s", roast)
+    if ctx.voice_client and ctx.voice_client.is_connected():
+        await _speak_text(
+            ctx.voice_client,
+            ctx.guild.id,
+            roast,
+            rate=MATT_ROAST_TTS_RATE,
+            pitch=MATT_ROAST_TTS_PITCH,
+        )
 
 
 @bot.command(name="status")
