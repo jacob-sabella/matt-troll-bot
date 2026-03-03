@@ -6,6 +6,7 @@ Commands:
   !leave            Leave the current voice channel
   !hate_matt        Send a playful roast aimed at Matt
   !hate_matt_voice  Play a playful roast in voice chat only
+  !matt_moan        Play a chaotic Matt moan line in voice chat only
   !status           Show whether the bot is listening and in which channel
 """
 
@@ -33,6 +34,8 @@ MATT_TTS_RATE = "-20%"
 MATT_TTS_PITCH = "-8Hz"
 MATT_ROAST_TTS_RATE = "-5%"
 MATT_ROAST_TTS_PITCH = "-4Hz"
+MATT_MOAN_TTS_RATE = "-10%"
+MATT_MOAN_TTS_PITCH = "+6Hz"
 
 # Curated pool of voices that sound good with the sultry rate/pitch settings
 MATT_VOICES = [
@@ -601,6 +604,46 @@ def _next_voice_roast() -> str:
         random.shuffle(_voice_roast_pool)
     return _voice_roast_pool.pop()
 
+
+MATT_MOAN_SYLLABLES = [
+    "ahh",
+    "uhh",
+    "ohh",
+    "mmm",
+    "hnn",
+    "nnh",
+    "mmh",
+    "aah",
+    "unf",
+]
+MATT_MOAN_CHARS = "ahmno"
+
+
+def _build_matt_moan_line() -> str:
+    name = random.choice(
+        [
+            "matt",
+            "maaatt",
+            "matttt",
+            "maaaattt",
+        ]
+    )
+    parts: list[str] = [name]
+    for _ in range(random.randint(5, 10)):
+        if random.random() < 0.4:
+            char_noise = "".join(
+                random.choice(MATT_MOAN_CHARS) for _ in range(random.randint(2, 6))
+            )
+            if random.random() < 0.5:
+                char_noise += random.choice(["~", "!", ".."])
+            parts.append(char_noise)
+            continue
+        syllable = random.choice(MATT_MOAN_SYLLABLES)
+        if random.random() < 0.5:
+            syllable += random.choice(["~", "..", "!"])
+        parts.append(syllable)
+    return " ".join(parts)
+
 load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
@@ -979,6 +1022,32 @@ async def hate_matt_voice(ctx: commands.Context):
         await ctx.send("Couldn't play voice roast (not connected to a voice channel).")
         return
     log.info("Played voice-only roast via !hate_matt_voice: %s", roast)
+
+
+@bot.command(name="matt_moan", aliases=["mattmoan", "moan_matt", "moan"])
+async def matt_moan(ctx: commands.Context):
+    """Play a chaotic Matt moan line in voice chat without posting text."""
+    if not ctx.voice_client or not ctx.voice_client.is_connected():
+        await ctx.send("I'm not in a voice channel.")
+        return
+    await ctx.send("Playing Matt moan line now.")
+    moan_line = _build_matt_moan_line()
+    try:
+        started = await _speak_text(
+            ctx.voice_client,
+            ctx.guild.id,
+            moan_line,
+            rate=MATT_MOAN_TTS_RATE,
+            pitch=MATT_MOAN_TTS_PITCH,
+        )
+    except Exception:
+        log.exception("Failed to play Matt moan line.")
+        await ctx.send("Matt moan failed due to a TTS/playback error. Check bot logs.")
+        return
+    if not started:
+        await ctx.send("Couldn't play Matt moan line (not connected to a voice channel).")
+        return
+    log.info("Played voice-only Matt moan via !matt_moan: %s", moan_line)
 
 
 @bot.command(name="status")
